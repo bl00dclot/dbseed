@@ -15,6 +15,47 @@ pool.on('error', (err) => console.error(err)); // deal with e.g. re-connect
 
 // --- HELPER FUNCTIONS ---
 
+// Search for all objects in a nested structure that have a specific key-value pair.
+
+function findObjectsWithKeyValue(obj, key, value) {
+  const results = [];
+  const visited = new WeakSet();
+  function recurse(item) {
+    // Only process if item is a non-null object
+    if (item && typeof item === 'object') {
+      if (visited.has(item)) return;          // avoid cycles
+      visited.add(item);
+
+      // If this object has the target key as its own property and value matches, record it
+      if (!Array.isArray(item)
+          && Object.prototype.hasOwnProperty.call(item, key)
+          && item[key] === value) {
+        results.push(item);
+      }
+
+      // Recurse into arrays or objects
+      if (Array.isArray(item)) {
+        for (const element of item) {
+          recurse(element);
+        }
+      } else {
+        for (const k in item) {
+          // Only recurse on own properties
+          if (Object.prototype.hasOwnProperty.call(item, k)) {
+            recurse(item[k]);
+          }
+        }
+      }
+    }
+  }
+  recurse(obj);
+  return results;
+}
+const findProperty = (obj, nameToFind, propertyToReturn) => {
+  const foundProperty = obj.find(item => item.type === nameToFind);
+  return foundProperty ? foundProperty[propertyToReturn] : null;
+}
+
 function loadAllJson(dir) {
   return fs
     .readdirSync(dir)
@@ -39,27 +80,31 @@ function transformForSeed(src) {
   let topics
   switch (slug) {
     case 'general':
-      // const generalPage = {}
-      //   generalPage.title = "Culture and Traditions of Georgia";
-      //   generalPage.description = [
-      //     {
-      //       type: 'paragraph',
-      //       text: "Explore the rich culture and traditions of Georgia, from its ancient history to modern practices."
-      //     }
-      //   ];
-      //   generalPage.content = jsonData.map((card) => ({
-      //     type: 'structured_card',
-      //     structured_card: {
-      //       title: card.title,
-      //       description: card.content,
-      //       img_src: card.img_src,
-      //       img_alt: card.img_alt,
-      //       items: jsonData.find(item => item.type === 'list') ? card.items : []
-      //     }
-      //   }));
-      //   jsonData.length = 0; // Clear the original jsonData array
-      //   jsonData.push(generalPage);
-      console.log(jsonData.find(item => item.type === 'list')); 
+      console.log(findProperty(jsonData, 'list', "items"))
+      // console.log(jsonData[2].content);
+      const generalPage = {}
+        generalPage.title = "Culture and Traditions of Georgia";
+        generalPage.description = [
+          {
+            type: 'paragraph',
+            text: "Explore the rich culture and traditions of Georgia, from its ancient history to modern practices."
+          }
+        ];
+        generalPage.content = jsonData.map((card) => ({
+                      type: 'structured_card',
+            structured_card: {
+              title: card.title,
+              description: card.content,
+              img_src: card.img_src,
+              img_alt: card.img_alt,
+              items: ''
+          }
+        }
+
+        ));
+        jsonData.length = 0; // Clear the original jsonData array
+        jsonData.push(generalPage);
+        // console.log(jsonData[0].content);
       topics = tags.general;
       break;
     case 'history':
@@ -346,3 +391,4 @@ console.log('✅ Connected to the database.');
 
 // // Run the main function
 // main().catch(console.error);
+
