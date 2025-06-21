@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'path';
 import { neon, Pool } from '@neondatabase/serverless';
 import tags from './tags.mjs'
-
 // --- CONFIGURATION ---
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'georgia');
@@ -15,7 +14,75 @@ pool.on('error', (err) => console.error(err)); // deal with e.g. re-connect
 
 // --- HELPER FUNCTIONS ---
 
-// Search for all objects in a nested structure that have a specific key-value pair.
+class StructuredCard {
+  constructor({title, description, img_src = '', img_alt = '', items = [], footer = ''}) {
+    this.type = 'structured_card';
+    this.structured_card = {
+      title: title,
+      description: description,
+      img_src: img_src,
+      img_alt: img_alt,
+      items: items,
+      footer: footer
+    };
+  }
+}
+
+class paragraphBlock {
+  constructor(text) {
+    this.type = 'paragraph';
+    this.text = text;
+  }
+}
+
+class listBlock {
+  constructor(items) {
+    this.type = 'list';
+    this.items = items;
+  }
+}
+
+class ContentBlock {
+  constructor(title, description, content = [], img_src = '', img_alt = '', items = [], footer = '') {
+    this.title = title;
+    this.description = description;
+    this.content = content;
+    this.img_src = img_src;
+    this.img_alt = img_alt;
+    this.items = items;
+    this.footer = footer;
+  }
+  addStructuredCard(structuredCard) {
+    this.content.push({
+      type: 'structured_card',
+      structured_card: structuredCard
+    });
+  }
+  addParagraph(text, target) {
+    this[target].push({
+      type: 'paragraph',
+      text: text
+    });
+  }
+  addList(items, target) {
+    this[target].push({
+      type: 'list',
+      items: items
+    });
+  }
+}
+
+class PageTemplate {
+  constructor(slug, title, meta_description, status = 'draft', published_at = new Date().toISOString(), jsonData = [], topics = []) {
+    this.slug = slug;
+    this.title = title;
+    this.meta_description = meta_description;
+    this.status = status;
+    this.published_at = published_at;
+    this.jsonData = jsonData;
+    this.topics = topics;
+  }
+}
 
 function findObjectsWithKeyValue(obj, key, value) {
   const results = [];
@@ -55,6 +122,21 @@ const findProperty = (obj, nameToFind, propertyToReturn) => {
   const foundProperty = obj.find(item => item.type === nameToFind);
   return foundProperty ? foundProperty[propertyToReturn] : null;
 }
+function mergeArraysByKey(arr1, arr2, key) {
+    const map = new Map();
+      arr1.forEach(item => {
+    map.set(item[key], { ...item });
+  });
+    arr2.forEach(item => {
+    if (map.has(item[key])) {
+      const existingItem = map.get(item[key]);
+      map.set(item[key], { ...existingItem, ...item });
+    } else {
+      map.set(item[key], { ...item });
+    }
+  });
+    return Array.from(map.values());
+}
 
 function loadAllJson(dir) {
   return fs
@@ -80,8 +162,29 @@ function transformForSeed(src) {
   let topics
   switch (slug) {
     case 'general':
-      console.log(findProperty(jsonData, 'list', "items"))
-      // console.log(jsonData[2].content);
+      let listItems = jsonData.filter(card => card.description !== null && card.description !== undefined)
+      .map(card => {
+        return {
+          title: card.title,
+          content: findProperty(card.description, 'paragraph', 'text') || '',
+          img_src: card.img_src || '',
+          img_alt: card.img_alt || '',
+          items: findProperty(card.description, 'list', 'items') || [],
+          footer: card.footer || ''
+        };
+      });
+      let contentItems = jsonData.filter(card => card.content !== null && card.content !== undefined)
+      .map(card => {
+        return {
+          title: card.title,
+          content: findProperty(card.content, 'paragraph', 'text') || '',
+          img_src: card.img_src || '',
+          img_alt: card.img_alt || '',
+          items: findProperty(card.content, 'list', 'items') || [],
+          footer: card.footer || ''
+        };
+      });
+      const mergedArray = mergeArraysByKey(listItems, contentItems, 'title');
       const generalPage = {}
         generalPage.title = "Culture and Traditions of Georgia";
         generalPage.description = [
@@ -90,87 +193,86 @@ function transformForSeed(src) {
             text: "Explore the rich culture and traditions of Georgia, from its ancient history to modern practices."
           }
         ];
-        generalPage.content = jsonData.map((card) => ({
-                      type: 'structured_card',
+        generalPage.content = mergedArray.map((card) => ({
+          type: 'structured_card',
             structured_card: {
               title: card.title,
               description: card.content,
               img_src: card.img_src,
               img_alt: card.img_alt,
-              items: ''
+              items: card.items || [],
+              footer: card.footer || ''
           }
         }
-
         ));
         jsonData.length = 0; // Clear the original jsonData array
         jsonData.push(generalPage);
-        // console.log(jsonData[0].content);
-      topics = tags.general;
+        topics = tags.general;
       break;
     case 'history':
       topics = tags.history;
       break;
     case 'culture':
-        const culturePage = {}
-        culturePage.title = "Culture and Traditions of Georgia";
-        culturePage.description = [
-          {
-            type: 'paragraph',
-            text: "Explore the rich culture and traditions of Georgia, from its ancient history to modern practices."
-          }
-        ];
-        culturePage.content = jsonData.map((card) => ({
-          type: 'structured_card',
-          structured_card: {
+
+        const newCulturePage = new ContentBlock(
+        "Culture and Traditions of Georgia",
+        new paragraphBlock(
+          "Explore the rich culture and traditions of Georgia, from its ancient history to modern practices."
+        ),
+        jsonData.map((card) => {
+          return new StructuredCard({
             title: card.title,
-            description: card.content,
-            img_src: card.img_src,
-            img_alt: card.img_alt,
-            items: card.items || []
-          }
-        }));
+            description: card.content || '',
+            img_src: card.img_src || '',
+            img_alt: card.img_alt || '',
+            items: card.items || [],
+            footer: card.footer || ''
+          });
+        }),
+      );
+
         jsonData.length = 0; // Clear the original jsonData array
-        jsonData.push(culturePage);
+        jsonData.push(newCulturePage);
       topics = tags.culture;
       break;
     case 'nature':
       topics = tags.nature;
       break;
     case 'adventures':
-      jsonData.forEach((card) => {
-        if (card.name) {
-          card.title = card.name;
-          delete card.name; // Remove the old key to avoid confusion
-        }
-        if (card.imageSrc) {
-          card.img_src = card.imageSrc;
-          delete card.imageSrc; // Remove the old key to avoid confusion
-        }
-        if (card.imageAlt) {
-          card.img_alt = card.imageAlt;
-          delete card.imageAlt; // Remove the old key to avoid confusion
-        }
-        if (card.description) {
-          card.description = [
-            {
-              type: 'paragraph',
-              text: card.description
-            }
-          ]
-        }
-        if (card.location) {
-          card.content = {
-            type: 'paragraph',
-            text: `Location: ${card.location}`
-          };
-          delete card.location; // Remove the old key to avoid confusion
-        }
-        if (card.footer) {
-          card.footer = `Read more: <Link href="${card.footer}">Explore further</Link>`;
-        } else {
-          card.footer = '';
-        }
-      });
+      // jsonData.forEach((card) => {
+      //   if (card.name) {
+      //     card.title = card.name;
+      //     delete card.name; // Remove the old key to avoid confusion
+      //   }
+      //   if (card.imageSrc) {
+      //     card.img_src = card.imageSrc;
+      //     delete card.imageSrc; // Remove the old key to avoid confusion
+      //   }
+      //   if (card.imageAlt) {
+      //     card.img_alt = card.imageAlt;
+      //     delete card.imageAlt; // Remove the old key to avoid confusion
+      //   }
+      //   if (card.description) {
+      //     card.description = [
+      //       {
+      //         type: 'paragraph',
+      //         text: card.description
+      //       }
+      //     ]
+      //   }
+      //   if (card.location) {
+      //     card.content = {
+      //       type: 'paragraph',
+      //       text: `Location: ${card.location}`
+      //     };
+      //     delete card.location; // Remove the old key to avoid confusion
+      //   }
+      //   if (card.footer) {
+      //     card.footer = `Read more: <Link href="${card.footer}">Explore further</Link>`;
+      //   } else {
+      //     card.footer = '';
+      //   }
+      // });
       topics = tags.adventures;
       break;
     case 'cuisine':
@@ -216,6 +318,25 @@ function transformForSeed(src) {
       topics = tags.cuisine;
       break;
     case 'guide':
+      const newGuidePage = new ContentBlock(
+        "Guided Tours in Georgia",
+        new paragraphBlock(
+          "Discover the best guided tours in Georgia, from cultural experiences to adventure activities."
+        ),
+        jsonData.map((card) => {
+          return new StructuredCard({
+            title: card.name,
+            description: card.intro || '',
+            img_src: card.imageSrc || '',
+            img_alt: card.imageAlt || '',
+            items: card.description || [],
+            footer: card.footer || ''
+          }
+          );
+        })
+      );
+      jsonData.length = 0; // Clear the original jsonData array
+      jsonData.push(newGuidePage);
       topics = tags.guide;
       break;
     case 'health':
@@ -229,15 +350,15 @@ function transformForSeed(src) {
       break;
     default:
   }
-  return {
-    slug: src.slug,
-    title: src.title,
-    meta_description: src.meta_description || `Seed data for ${src.slug}`,
-    status: src.status || 'draft',
-    published_at: src.published_at || new Date().toISOString(),
-    jsonData: src.jsonData || [],
-    topics: topics || [],
-  };
+  return new PageTemplate(
+    src.slug,
+    src.title,
+    src.meta_description || `Seed data for ${src.slug}`,
+    src.status || 'draft',
+    src.published_at || new Date().toISOString(),
+    src.jsonData || [],
+    topics || []
+  );
 }
 
 const INPUT_DIR = path.join(process.cwd(), 'data', 'georgia');
@@ -250,8 +371,7 @@ const seededData = georgiaData.map(transformForSeed);
 
 
 
-// console.log(seededData[3].jsonData[0].content); // Debugging line to check the first title
-
+console.log(seededData[4]); // Example to check the structure
 
 
 
